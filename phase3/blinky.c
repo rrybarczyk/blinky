@@ -5,16 +5,32 @@ volatile unsigned *GPIO_SET0  = (volatile unsigned *)(GPIO_BASE + 0x1C);
 volatile unsigned *GPIO_CLR0  = (volatile unsigned *)(GPIO_BASE + 0x28);
 
 static void spin_sleep_us(unsigned int us) {
-  for (unsigned int i = 0; i < us * 6; i++) {
-    asm volatile("nop");
-  }
+    for (unsigned int i = 0; i < us * 6; i++) {
+        asm volatile("nop");
+    }
 }
 
 static void spin_sleep_ms(unsigned int ms) {
-  spin_sleep_us(ms * 1000);
+    spin_sleep_us(ms * 1000);
 }
 
 int main(void) {
-  // FIXME: STEP 1: Set GPIO Pin 16 as output.
-  // FIXME: STEP 2: Continuously set and clear GPIO 16.
+
+    // Set GPIO Pin 16 as output.
+    const int pin = 16;
+    int shift = (pin % 10) * 3;
+    *GPIO_FSEL1 &= ~(0b111 << shift);
+    *GPIO_FSEL1 |= (0b001 << shift);
+
+    // Continuously set and clear GPIO 16.
+    int set_reg = 0b1;
+    int x = 1;
+    while (x > 0) {
+        *GPIO_SET0 &= ~(0b1 << pin);
+        *GPIO_SET0 |= (0b1 << pin);
+        spin_sleep_ms(500);
+        *GPIO_CLR0 &= ~(0b1 << pin);
+        *GPIO_CLR0 |= (0b1 << pin);
+        spin_sleep_ms(500);
+    }
 }
