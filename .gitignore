@@ -36,7 +36,7 @@
 *.x86_64
 *.hex
 *.bin
-*.img
+# *.img     keep the final .img file that goes on RPi
 
 # Debug files
 *.dSYM/
@@ -117,4 +117,6 @@ Temporary Items
 # Assignment 0 specific
 phase4/build
 phase4/target
-files/
+
+# cargo xbuild specific
+xbuild_sysroot

@@ -1,71 +1,68 @@
-TARGET ?= aarch64-none-elf
-CROSS ?= $(TARGET)
+#
+# MIT License
+#
+# Copyright (c) 2018-2019 Andre Richter <andre.o.richter@gmail.com>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
 
-CC := $(CROSS)-gcc
-XARGO := CARGO_INCREMENTAL=0 RUST_TARGET_PATH="$(shell pwd)" xargo
+TARGET = aarch64-unknown-none
 
-LD_LAYOUT := ext/layout.ld
+SOURCES = $(wildcard **/*.rs) $(wildcard **/*.S) link.ld
 
-RUST_BINARY := $(shell cat Cargo.toml | grep name | cut -d\" -f 2 | tr - _)
-RUST_BUILD_DIR := target/$(TARGET)
-RUST_DEBUG_LIB := $(RUST_BUILD_DIR)/debug/lib$(RUST_BINARY).a
-RUST_RELEASE_LIB := $(RUST_BUILD_DIR)/release/lib$(RUST_BINARY).a
 
-RUST_DEPS = Xargo.toml Cargo.toml build.rs $(LD_LAYOUT) src/*
-EXT_DEPS = $(BUILD_DIR)/crt0.o
+XRUSTC_CMD   = cargo xrustc --target=$(TARGET) --release
+CARGO_OUTPUT = target/$(TARGET)/release/kernel8
 
-BUILD_DIR := build
-KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
-RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
+OBJCOPY        = cargo objcopy --
+OBJCOPY_PARAMS = --strip-all -O binary
 
-.PHONY: all clean check
+CONTAINER_UTILS   = andrerichter/raspi3-utils
 
-VPATH = ext
+DOCKER_CMD        = docker run -it --rm
+DOCKER_ARG_CURDIR = -v $(shell pwd):/work -w /work
 
-all: $(KERNEL).hex $(KERNEL).bin
+DOCKER_EXEC_QEMU     = qemu-system-aarch64 -M raspi3 -kernel kernel8.img
 
-check:
-	@$(XARGO) check --target=$(TARGET)
+.PHONY: all qemu clippy clean objdump nm
 
-$(RUST_DEBUG_LIB): $(RUST_DEPS)
-	@echo "+ Building $@ [xargo]"
-	@$(XARGO) build --target=$(TARGET)
+all: clean kernel8.img
 
-$(RUST_RELEASE_LIB): $(RUST_DEPS)
-	@echo "+ Building $@ [xargo --release]"
-	@$(XARGO) build --release --target=$(TARGET)
+$(CARGO_OUTPUT): $(SOURCES)
+	$(XRUSTC_CMD)
 
-ifeq ($(DEBUG),1)
-$(RUST_LIB): $(RUST_DEBUG_LIB) | $(BUILD_DIR)
-	@cp $< $@
-else
-$(RUST_LIB): $(RUST_RELEASE_LIB) | $(BUILD_DIR)
-	@cp $< $@
-endif
+kernel8.img: $(CARGO_OUTPUT)
+	cp $< .
+	$(OBJCOPY) $(OBJCOPY_PARAMS) $< kernel8.img
 
-$(BUILD_DIR):
-	@mkdir -p $@
+qemu: all
+	$(DOCKER_CMD) $(DOCKER_ARG_CURDIR) $(CONTAINER_UTILS) \
+	$(DOCKER_EXEC_QEMU) -serial stdio
 
-$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
-	@echo "+ Building $@ [cc $<]"
-	@$(CC) $(CCFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/%.o: %.S | $(BUILD_DIR)
-	@echo "+ Building $@ [as $<]"
-	@$(CC) $(CCFLAGS) -c $< -o $@
-
-$(KERNEL).elf: $(EXT_DEPS) $(RUST_LIB) | $(BUILD_DIR)
-	@echo "+ Building $@ [ld $^]"
-	@$(CROSS)-ld --gc-sections -o $@ $^ -T$(LD_LAYOUT)
-
-$(KERNEL).hex: $(KERNEL).elf | $(BUILD_DIR)
-	@echo "+ Building $@ [objcopy $<]"
-	@$(CROSS)-objcopy $< -O ihex $@
-
-$(KERNEL).bin: $(KERNEL).elf | $(BUILD_DIR)
-	@echo "+ Building $@ [objcopy $<]"
-	@$(CROSS)-objcopy $< -O binary $@
+clippy:
+	cargo xclippy --target=$(TARGET)
 
 clean:
-	$(XARGO) clean
-	rm -rf $(BUILD_DIR)
+	cargo clean
+
+objdump:
+	cargo objdump --target $(TARGET) -- -disassemble -print-imm-hex kernel8
+
+nm:
+	cargo nm --target $(TARGET) -- kernel8 | sort
